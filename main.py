@@ -1,24 +1,17 @@
 # main.py
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile
 import cv2
 import numpy as np
-import insightface
 from insightface.app import FaceAnalysis
 
 app = FastAPI()
 
-# --- 1. SETUP AI ENGINE (Run once on startup) ---
-print(">>> LOADING AI BRAIN... (This takes 10-20 seconds)")
-# We use 'buffalo_l' (Standard) or 'buffalo_s' (Faster/Lighter)
-# ctx_id=0 means use GPU if available, else CPU (-1)
-face_engine = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-face_engine.prepare(ctx_id=0, det_size=(640, 640))
-print(">>> AI READY.")
+print(">>> LOADING LIGHTWEIGHT AI BRAIN...")
+face_engine = FaceAnalysis(name='buffalo_s', providers=['CPUExecutionProvider'])
+face_engine.prepare(ctx_id=0, det_size=(320, 320))
+print(">>> AI READY (LOW RAM MODE).")
 
-# --- 2. TEMPORARY DATABASE ---
-# In a real app, you would use PostgreSQL.
-# Here, we store faces in memory (RAM). If you restart the server, this wipes.
-# Format: [{'name': 'Visitor_1', 'embedding': [vector...]}]
+# In-Memory Database
 known_faces_db = []
 
 def get_embedding(img_array):
@@ -34,48 +27,51 @@ def compute_sim(feat1, feat2):
 
 @app.get("/")
 def home():
-    return {"status": "UFPS Brain Online", "faces_stored": len(known_faces_db)}
+    return {"status": "UFPS Brain Online (Low RAM)", "faces_stored": len(known_faces_db)}
 
 @app.post("/scan")
 async def scan_face(file: UploadFile = File(...)):
-    # 1. READ IMAGE FROM PHONE
-    contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    try:
+        # 1. READ IMAGE
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    if img is None:
-        return {"status": "error", "message": "Invalid Image"}
+        if img is None:
+            return {"status": "error", "message": "Invalid Image"}
 
-    # 2. EXTRACT FACE DATA
-    embedding = get_embedding(img)
-    if embedding is None:
-        return {"status": "error", "message": "No face visible. Remove masks/glasses."}
+        # 2. GET EMBEDDING
+        embedding = get_embedding(img)
+        if embedding is None:
+            return {"status": "error", "message": "No face found."}
 
-    # 3. CHECK DATABASE FOR DUPLICATES
-    best_score = 0.0
-    
-    for user in known_faces_db:
-        score = compute_sim(user['embedding'], embedding)
-        if score > best_score:
-            best_score = score
+        # 3. CHECK DUPLICATES
+        best_score = 0.0
+        for user in known_faces_db:
+            score = compute_sim(user['embedding'], embedding)
+            if score > best_score:
+                best_score = score
 
-    # 4. DECISION THRESHOLD
-    THRESHOLD = 0.50  # Strictness (0.4 to 0.6 is normal)
+        # 4. DECISION
+        # 'buffalo_s' is slightly less accurate, so we adjust threshold
+        THRESHOLD = 0.50 
 
-    if best_score > THRESHOLD:
-        return {
-            "status": "duplicate",
-            "score": float(best_score),
-            "message": "Double Dipping Detected!"
-        }
-    else:
-        # REGISTER NEW USER
-        known_faces_db.append({
-            "name": f"User_{len(known_faces_db)+1}",
-            "embedding": embedding
-        })
-        return {
-            "status": "approved",
-            "score": float(best_score),
-            "message": "New User Registered."
-        }
+        if best_score > THRESHOLD:
+            return {
+                "status": "duplicate",
+                "score": float(best_score),
+                "message": "Duplicate Detected!"
+            }
+        else:
+            known_faces_db.append({
+                "name": f"User_{len(known_faces_db)+1}",
+                "embedding": embedding
+            })
+            return {
+                "status": "approved",
+                "score": float(best_score),
+                "message": "Access Granted."
+            }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
