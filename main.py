@@ -7,8 +7,8 @@ from insightface.app import FaceAnalysis
 app = FastAPI()
 
 print(">>> LOADING LIGHTWEIGHT AI BRAIN...")
-face_engine = FaceAnalysis(name='buffalo_s', providers=['CPUExecutionProvider'])
-face_engine.prepare(ctx_id=0, det_size=(320, 320))
+face_engine = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+face_engine.prepare(ctx_id=0, det_size=(640, 640))
 print(">>> AI READY (LOW RAM MODE).")
 
 # In-Memory Database
@@ -75,3 +75,4 @@ async def scan_face(file: UploadFile = File(...)):
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
